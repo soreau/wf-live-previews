@@ -155,6 +155,7 @@ class live_previews_plugin : public wf::plugin_interface_t
             wo->render->add_post(&post_hook);
             wo->render->add_effect(&damage_hook, wf::OUTPUT_EFFECT_PRE);
             view->connect(&view_unmapped);
+            destroy_render_instance_manager();
             create_render_instance_manager(view);
             current_preview = view;
             view->damage();
@@ -234,11 +235,7 @@ class live_previews_plugin : public wf::plugin_interface_t
     {
         method_repository->unregister_method("live_previews/request_stream");
         method_repository->unregister_method("live_previews/release_output");
-        if (wo)
-        {
-            wo->render->rem_post(&post_hook);
-            wo->render->rem_effect(&damage_hook);
-        }
+        destroy_output();
         destroy_render_instance_manager();
         view_unmapped.disconnect();
     }
