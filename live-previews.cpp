@@ -125,13 +125,7 @@ class live_previews_plugin : public wf::plugin_interface_t
             auto output_name = "live-preview-" + std::to_string(id);
             if (vg.width != current_size.width || vg.height != current_size.height)
             {
-                if (wo)
-                {
-                    wo->render->rem_post(&post_hook);
-                    wo->render->rem_effect(&damage_hook);
-                    wlr_output_destroy(wo->handle);
-                    wo = NULL;
-                }
+                destroy_output();
                 current_size.width = vg.width;
                 current_size.height = vg.height;
             }
@@ -157,17 +151,13 @@ class live_previews_plugin : public wf::plugin_interface_t
                 wlr_output_commit_state(handle, &state);
             }
             wlr_output_state_finish(&state);
-            
-            //wlr_output_destroy_global(handle);
             auto global = handle->global;
             handle->global = NULL;
             wlr_output_set_name(handle, output_name.c_str());
             handle->global = global;
-            //wlr_output_create_global(handle, wf::get_core().display);
             wo = wf::get_core().output_layout->find_output(handle);
             wo->render->add_post(&post_hook);
             wo->render->add_effect(&damage_hook, wf::OUTPUT_EFFECT_PRE);
-            LOGI("Output added: ", wo->to_string());
             view->connect(&view_unmapped);
             ensure_transformer(view);
             current_preview = view;
@@ -184,14 +174,7 @@ class live_previews_plugin : public wf::plugin_interface_t
         pop_transformer(current_preview);
         view_unmapped.disconnect();
 
-        if (wo)
-        {
-            wo->render->rem_post(&post_hook);
-            wo->render->rem_effect(&damage_hook);
-
-            wlr_output_destroy(wo->handle);
-            wo = NULL;
-        }
+        destroy_output();
 
         return wf::ipc::json_ok();
     };
@@ -219,7 +202,6 @@ class live_previews_plugin : public wf::plugin_interface_t
             auto src_size = aux_buffer.get_size();
             auto dst_size = wo->get_relative_geometry();
             wf::gles::bind_render_buffer(dst);
-            //OpenGL::clear(wf::color_t{0, 0, 0, 0});
             dst.blit(aux_buffer, wlr_fbox{0, 0, float(src_size.width), float(src_size.height)}, wf::geometry_t{0, 0, dst_size.width, dst_size.height});
             aux_buffer.free();
             current_preview->damage();
@@ -235,18 +217,22 @@ class live_previews_plugin : public wf::plugin_interface_t
 
         view_unmapped.disconnect();
 
-        if (wo)
-        {
-            wo->render->rem_post(&post_hook);
-            wo->render->rem_effect(&damage_hook);
-
-            wlr_output_destroy(wo->handle);
-            wo = NULL;
-        }
+        destroy_output();
 
         pop_transformer(current_preview);
         current_preview = nullptr;
     };
+
+   void destroy_output()
+   {
+       if (wo)
+       {
+           wo->render->rem_post(&post_hook);
+           wo->render->rem_effect(&damage_hook);
+           wlr_output_destroy(wo->handle);
+           wo = NULL;
+       }
+   }
 
     void fini() override
     {
