@@ -66,21 +66,17 @@ class live_previews_plugin : public wf::plugin_interface_t
         wo->render->damage(region, true);
     };
 
-    void pop_transformer(wayfire_view view)
+    void destroy_render_instance_manager()
     {
+        if (!instance_manager)
+        {
+            return;
+        }
         instance_manager.reset();
         instance_manager = nullptr;
     }
 
-    void remove_transformers()
-    {
-        for (auto& view : wf::get_core().get_all_views())
-        {
-            pop_transformer(view);
-        }
-    }
-
-    void ensure_transformer(wayfire_view view)
+    void create_render_instance_manager(wayfire_view view)
     {
         if (instance_manager)
         {
@@ -159,7 +155,7 @@ class live_previews_plugin : public wf::plugin_interface_t
             wo->render->add_post(&post_hook);
             wo->render->add_effect(&damage_hook, wf::OUTPUT_EFFECT_PRE);
             view->connect(&view_unmapped);
-            ensure_transformer(view);
+            create_render_instance_manager(view);
             current_preview = view;
             view->damage();
 
@@ -171,7 +167,7 @@ class live_previews_plugin : public wf::plugin_interface_t
 
     wf::ipc::method_callback release_output = [=] (wf::json_t data)
     {
-        pop_transformer(current_preview);
+        destroy_render_instance_manager();
         view_unmapped.disconnect();
 
         destroy_output();
@@ -219,7 +215,7 @@ class live_previews_plugin : public wf::plugin_interface_t
 
         destroy_output();
 
-        pop_transformer(current_preview);
+        destroy_render_instance_manager();
         current_preview = nullptr;
     };
 
@@ -243,9 +239,8 @@ class live_previews_plugin : public wf::plugin_interface_t
             wo->render->rem_post(&post_hook);
             wo->render->rem_effect(&damage_hook);
         }
+        destroy_render_instance_manager();
         view_unmapped.disconnect();
-        remove_transformers();
-        instance_manager.reset();
     }
 };
 }
