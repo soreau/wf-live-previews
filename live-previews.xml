@@ -4,5 +4,10 @@
 		<_short>Live Previews</_short>
 		<_long>Live Minimized Window Previews</_long>
 		<category>Desktop</category>
+		<option name="max_dimension" type="int">
+			<_short>Maximum Dimension</_short>
+			<_long>The maximium dimension for width or height of the preview, depending on which is larger.</_long>
+			<default>400</default>
+		</option>
 	</plugin>
 </wayfire>

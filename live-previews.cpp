@@ -44,6 +44,7 @@ namespace live_previews
 
 class live_previews_plugin : public wf::plugin_interface_t
 {
+    wf::option_wrapper_t<int> max_dimension{"live-previews/max_dimension"};
     wayfire_view current_preview = nullptr;
     wf::output_t *wo = nullptr;
     wf::dimensions_t current_size;
@@ -107,15 +108,15 @@ class live_previews_plugin : public wf::plugin_interface_t
                 return wf::ipc::json_error("view is not a toplevel");
             }
             auto vg = toplevel->get_geometry();
-            if (vg.width > vg.height)
+            if (vg.width < vg.height)
             {
-                vg.width = vg.width * (200 / float(vg.height));
-                vg.height = 200;
+                vg.width = vg.width * (max_dimension / float(vg.height));
+                vg.height = max_dimension;
             }
             else
             {
-                vg.height = vg.height * (200 / float(vg.width));
-                vg.width = 200;
+                vg.height = vg.height * (max_dimension / float(vg.width));
+                vg.width = max_dimension;
             }
             LOGI(vg.width, "x", vg.height);
             auto output_name = "live-preview-" + std::to_string(id);
