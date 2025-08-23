@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<wayfire>
+	<plugin name="live-previews">
+		<_short>Live Previews</_short>
+		<_long>Live Minimized Window Previews</_long>
+		<category>Desktop</category>
+	</plugin>
+</wayfire>
