@@ -1,7 +1,7 @@
 /*
  * The MIT License (MIT)
  *
- * Copyright (c) 2025 Scott Moreau
+ * Copyright (c) 2026 Scott Moreau
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -119,20 +119,46 @@ class live_previews_plugin : public wf::plugin_interface_t
                 vg.width = max_dimension;
             }
             LOGI(vg.width, "x", vg.height);
-            auto output_name = "live-preview-" + std::to_string(id);
+            auto output_name = std::string("live-preview");
             if (vg.width != current_size.width || vg.height != current_size.height)
             {
-                destroy_output();
                 current_size.width = vg.width;
                 current_size.height = vg.height;
-            }
-            for (auto& output : wf::get_core().output_layout->get_outputs())
-            {
-                if (wlr_output_is_headless(output->handle) && std::string(output->handle->name) == output_name)
+                if (wo)
                 {
-                    return wf::ipc::json_ok();
+                    wlr_output_state state;
+                    wlr_output_mode mode
+                    {
+                        .width = vg.width,
+                        .height = vg.height,
+                        .refresh = 0,
+                        .preferred = true,
+                        .picture_aspect_ratio = WLR_OUTPUT_MODE_ASPECT_RATIO_NONE,
+                    };
+                    wlr_output_state_init(&state);
+                    wlr_output_state_set_mode(&state, &mode);
+                    wlr_output_state_set_custom_mode(&state, vg.width, vg.height, 0);
+                    if (wlr_output_test_state(wo->handle, &state))
+                    {
+                        wlr_output_commit_state(wo->handle, &state);
+                    } else
+                    {
+                        destroy_output();
+                    }
                 }
             }
+            if (wo)
+            {
+                wo->render->add_post(&post_hook);
+                wo->render->add_effect(&damage_hook, wf::OUTPUT_EFFECT_PRE);
+                view->connect(&view_unmapped);
+                destroy_render_instance_manager();
+                create_render_instance_manager(view);
+                current_preview = view;
+                view->damage();
+                return wf::ipc::json_ok();
+            }
+
             if (!headless_backend)
             {
                 headless_backend = wlr_headless_backend_create(wf::get_core().ev_loop);
@@ -155,6 +181,7 @@ class live_previews_plugin : public wf::plugin_interface_t
             wo = wf::get_core().output_layout->find_output(handle);
             wo->render->add_post(&post_hook);
             wo->render->add_effect(&damage_hook, wf::OUTPUT_EFFECT_PRE);
+            wo->connect(&on_output_pre_remove);
             view->connect(&view_unmapped);
             destroy_render_instance_manager();
             create_render_instance_manager(view);
@@ -172,7 +199,11 @@ class live_previews_plugin : public wf::plugin_interface_t
         destroy_render_instance_manager();
         view_unmapped.disconnect();
 
-        destroy_output();
+        if (wo)
+        {
+            wo->render->rem_post(&post_hook);
+            wo->render->rem_effect(&damage_hook);
+        }
 
         return wf::ipc::json_ok();
     };
@@ -198,12 +229,23 @@ class live_previews_plugin : public wf::plugin_interface_t
             wf::auxilliary_buffer_t aux_buffer;
             current_preview->take_snapshot(aux_buffer);
             auto src_size = aux_buffer.get_size();
-            auto dst_size = wo->get_relative_geometry();
             wf::gles::bind_render_buffer(dst);
-            dst.blit(aux_buffer, wlr_fbox{0, 0, float(src_size.width), float(src_size.height)}, wf::geometry_t{0, 0, dst_size.width, dst_size.height});
+            dst.blit(aux_buffer, wlr_fbox{0, 0, float(src_size.width), float(src_size.height)}, wf::geometry_t{0, 0, current_size.width, current_size.height});
             aux_buffer.free();
             current_preview->damage();
         });
+    };
+
+    wf::signal::connection_t<wf::output_pre_remove_signal> on_output_pre_remove = [=] (wf::output_pre_remove_signal *ev)
+    {
+        if (!wo)
+        {
+            return;
+        }
+        destroy_render_instance_manager();
+        current_preview = nullptr;
+        wo->render->rem_post(&post_hook);
+        wo->render->rem_effect(&damage_hook);
     };
 
     wf::signal::connection_t<wf::view_unmapped_signal> view_unmapped = [=] (wf::view_unmapped_signal *ev)
@@ -215,28 +257,46 @@ class live_previews_plugin : public wf::plugin_interface_t
 
         view_unmapped.disconnect();
 
-        destroy_output();
-
         destroy_render_instance_manager();
         current_preview = nullptr;
+        wo->render->rem_post(&post_hook);
+        wo->render->rem_effect(&damage_hook);
     };
 
-   void destroy_output()
-   {
-       if (wo)
-       {
-           wo->render->rem_post(&post_hook);
-           wo->render->rem_effect(&damage_hook);
-           wlr_output_destroy(wo->handle);
-           wo = NULL;
-       }
-   }
+    void destroy_output()
+    {
+        if (!wo)
+        {
+            return;
+        }
+
+        LOGI("disabling output: ", wo->handle->name);
+
+        output_pre_remove_signal data;
+        data.output = wo;
+        wo->emit(&data);
+        get_core().output_layout->emit(&data);
+        wo->cancel_active_plugins();
+
+        if ((get_core().seat->get_active_output() == wo))
+        {
+            get_core().seat->focus_output(
+                get_core().output_layout->get_next_output(wo));
+        }
+
+        wf::output_removed_signal data2;
+        data2.output = wo;
+        wo->emit(&data2);
+        get_core().output_layout->emit(&data2);
+        wo = nullptr;
+    }
 
     void fini() override
     {
         method_repository->unregister_method("live_previews/request_stream");
         method_repository->unregister_method("live_previews/release_output");
         destroy_output();
+        on_output_pre_remove.disconnect();
         destroy_render_instance_manager();
         view_unmapped.disconnect();
     }
