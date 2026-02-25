@@ -45,9 +45,11 @@ namespace live_previews
 class live_previews_plugin : public wf::plugin_interface_t
 {
     wf::option_wrapper_t<int> max_dimension{"live-previews/max_dimension"};
+    wf::option_wrapper_t<int> frame_skip{"live-previews/frame_skip"};
     wayfire_view current_preview = nullptr;
     wf::output_t *wo = nullptr;
     wf::dimensions_t current_size;
+    int drop_frame;
   private:
     wf::shared_data::ref_ptr_t<wf::ipc::method_repository_t> method_repository;
     std::unique_ptr<wf::scene::render_instance_manager_t> instance_manager = nullptr;
@@ -120,6 +122,7 @@ class live_previews_plugin : public wf::plugin_interface_t
             }
             LOGI(vg.width, "x", vg.height);
             auto output_name = std::string("live-preview");
+            drop_frame = int(frame_skip);
             if (vg.width != current_size.width || vg.height != current_size.height)
             {
                 current_size.width = vg.width;
@@ -224,10 +227,25 @@ class live_previews_plugin : public wf::plugin_interface_t
             return;
         }
 
+        if (drop_frame++ >= int(frame_skip))
+        {
+            drop_frame = 0;
+        } else
+        {
+            return;
+        }
+
         wf::gles::run_in_context([&]
         {
+            current_preview->damage();
+            auto view_output = current_preview->get_output();
+            auto vg = wf::toplevel_cast(current_preview)->get_geometry();
+            auto output_scale = view_output->handle->scale;
+            auto temp_scale = max_dimension / float(vg.width);
             wf::auxilliary_buffer_t aux_buffer;
+            view_output->handle->scale = temp_scale;
             current_preview->take_snapshot(aux_buffer);
+            view_output->handle->scale = output_scale;
             auto src_size = aux_buffer.get_size();
             wf::gles::bind_render_buffer(dst);
             dst.blit(aux_buffer, wlr_fbox{0, 0, float(src_size.width), float(src_size.height)}, wf::geometry_t{0, 0, current_size.width, current_size.height});

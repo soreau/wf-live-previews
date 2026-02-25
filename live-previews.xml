@@ -9,5 +9,10 @@
 			<_long>The maximium dimension for width or height of the preview, depending on which is larger.</_long>
 			<default>400</default>
 		</option>
+		<option name="frame_skip" type="int">
+			<_short>Frame Skip</_short>
+			<_long>Increase this value to skip frames, potentially improving performance and making the preview render more smoothly.</_long>
+			<default>30</default>
+		</option>
 	</plugin>
 </wayfire>
