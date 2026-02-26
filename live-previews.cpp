@@ -45,6 +45,7 @@ class live_previews_plugin : public wf::plugin_interface_t
 {
     wf::option_wrapper_t<int> max_dimension{"live-previews/max_dimension"};
     wf::option_wrapper_t<int> frame_skip{"live-previews/frame_skip"};
+    wf::wl_listener_wrapper on_session_active;
     wayfire_view current_preview = nullptr;
     wf::output_t *wo = nullptr;
     wf::dimensions_t current_size;
@@ -102,6 +103,18 @@ class live_previews_plugin : public wf::plugin_interface_t
     {
         method_repository->register_method("live_previews/request_stream", request_stream);
         method_repository->register_method("live_previews/release_output", release_output);
+        on_session_active.set_callback([=] (void*)
+        {
+            /* XXX: Bug in wlroots, both session destroy and session activate
+             * send active event. So we just destroy the output unconditionally
+             * because we set it to NULL and bail out on NULL when calling
+             * destroy_output() */
+            destroy_output();
+        });
+        if (wf::get_core().session)
+        {
+            on_session_active.connect(&wf::get_core().session->events.active);
+        }
     }
 
     wf::ipc::method_callback request_stream = [=] (wf::json_t data)
@@ -204,7 +217,6 @@ class live_previews_plugin : public wf::plugin_interface_t
                 hooks_set[wo] = true;
             }
 
-            wo->connect(&on_output_pre_remove);
             view->connect(&view_unmapped);
             destroy_render_instance_manager();
             create_render_instance_manager(view);
@@ -298,27 +310,6 @@ class live_previews_plugin : public wf::plugin_interface_t
         });
     };
 
-    wf::signal::connection_t<wf::output_pre_remove_signal> on_output_pre_remove =
-        [=] (wf::output_pre_remove_signal *ev)
-    {
-        if (!wo || (ev->output != wo))
-        {
-            return;
-        }
-
-        destroy_render_instance_manager();
-        view_unmapped.disconnect();
-        current_preview = nullptr;
-        if (hooks_set[wo])
-        {
-            wo->render->rem_post(&post_hook);
-            wo->render->rem_effect(&damage_hook);
-            hooks_set[wo] = false;
-        }
-
-        on_output_pre_remove.disconnect();
-    };
-
     wf::signal::connection_t<wf::view_unmapped_signal> view_unmapped = [=] (wf::view_unmapped_signal *ev)
     {
         if (!current_preview || (ev->view != current_preview))
@@ -356,8 +347,6 @@ class live_previews_plugin : public wf::plugin_interface_t
             hooks_set[output] = false;
         }
 
-        on_output_pre_remove.disconnect();
-
         if (wf::get_core().seat->get_active_output() == output)
         {
             wf::get_core().seat->focus_output(
@@ -378,6 +367,7 @@ class live_previews_plugin : public wf::plugin_interface_t
         method_repository->unregister_method("live_previews/request_stream");
         method_repository->unregister_method("live_previews/release_output");
         destroy_output();
+        on_session_active.disconnect();
     }
 };
 }
