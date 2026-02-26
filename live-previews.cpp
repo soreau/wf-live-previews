@@ -175,7 +175,7 @@ class live_previews_plugin : public wf::plugin_interface_t
                 if (!hooks_set[wo])
                 {
                     wo->render->add_post(&post_hook);
-                    wo->render->add_effect(&damage_hook, wf::OUTPUT_EFFECT_PRE);
+                    wo->render->add_effect(&damage_hook, wf::OUTPUT_EFFECT_DAMAGE);
                     hooks_set[wo] = true;
                 }
 
@@ -220,7 +220,7 @@ class live_previews_plugin : public wf::plugin_interface_t
             if (!hooks_set[wo])
             {
                 wo->render->add_post(&post_hook);
-                wo->render->add_effect(&damage_hook, wf::OUTPUT_EFFECT_PRE);
+                wo->render->add_effect(&damage_hook, wf::OUTPUT_EFFECT_DAMAGE);
                 hooks_set[wo] = true;
             }
 
@@ -274,17 +274,24 @@ class live_previews_plugin : public wf::plugin_interface_t
 
     wf::post_hook_t post_hook = [=] (wf::auxilliary_buffer_t& src, const wf::render_buffer_t& dst)
     {
-        if (!current_preview)
-        {
-            return;
-        }
-
         if (drop_frame++ >= int(frame_skip))
         {
             drop_frame = 0;
         } else
         {
+            wo->render->damage_whole();
             current_preview->damage();
+            return;
+        }
+
+        wf::gles::run_in_context([&]
+        {
+            wf::gles::bind_render_buffer(dst);
+            OpenGL::clear(wf::color_t{0, 0, 0, 1}, GL_COLOR_BUFFER_BIT);
+        });
+
+        if (!current_preview)
+        {
             return;
         }
 
