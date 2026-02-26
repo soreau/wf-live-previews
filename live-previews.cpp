@@ -50,6 +50,7 @@ class live_previews_plugin : public wf::plugin_interface_t
     wf::output_t *wo = nullptr;
     wf::dimensions_t current_size;
     std::map<wf::output_t*, bool> hooks_set;
+    wf::wl_idle_call idle_damage;
     int drop_frame;
 
   private:
@@ -185,6 +186,12 @@ class live_previews_plugin : public wf::plugin_interface_t
                 wo->render->damage_whole();
                 current_preview = view;
                 view->damage();
+                idle_damage.run_once([=] ()
+                {
+                    view->get_output()->render->damage_whole();
+                    wo->render->damage_whole();
+                    view->damage();
+                });
                 return wf::ipc::json_ok();
             }
 
@@ -224,6 +231,12 @@ class live_previews_plugin : public wf::plugin_interface_t
             wo->render->damage_whole();
             current_preview = view;
             view->damage();
+            idle_damage.run_once([=] ()
+            {
+                view->get_output()->render->damage_whole();
+                wo->render->damage_whole();
+                view->damage();
+            });
 
             return wf::ipc::json_ok();
         }
