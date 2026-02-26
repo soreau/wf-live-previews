@@ -41,7 +41,6 @@ namespace wf
 {
 namespace live_previews
 {
-
 class live_previews_plugin : public wf::plugin_interface_t
 {
     wf::option_wrapper_t<int> max_dimension{"live-previews/max_dimension"};
@@ -49,8 +48,9 @@ class live_previews_plugin : public wf::plugin_interface_t
     wayfire_view current_preview = nullptr;
     wf::output_t *wo = nullptr;
     wf::dimensions_t current_size;
-    std::map<wf::output_t *, bool> hooks_set;
+    std::map<wf::output_t*, bool> hooks_set;
     int drop_frame;
+
   private:
     wf::shared_data::ref_ptr_t<wf::ipc::method_repository_t> method_repository;
     std::unique_ptr<wf::scene::render_instance_manager_t> instance_manager = nullptr;
@@ -62,6 +62,7 @@ class live_previews_plugin : public wf::plugin_interface_t
         {
             return;
         }
+
         // Damage is pushed up to the root in root coordinate system,
         // we need it in output-buffer-local coordinate system.
         region += -wf::origin(wo->get_layout_geometry());
@@ -76,6 +77,7 @@ class live_previews_plugin : public wf::plugin_interface_t
         {
             return;
         }
+
         instance_manager.reset();
         instance_manager = nullptr;
     }
@@ -86,9 +88,11 @@ class live_previews_plugin : public wf::plugin_interface_t
         {
             return;
         }
+
         std::vector<scene::node_ptr> nodes;
         nodes.push_back(view->get_root_node());
-        instance_manager = std::make_unique<wf::scene::render_instance_manager_t>(nodes, push_damage, view->get_output());
+        instance_manager = std::make_unique<wf::scene::render_instance_manager_t>(nodes, push_damage,
+            view->get_output());
         instance_manager->set_visibility_region(view->get_output()->get_layout_geometry());
     }
 
@@ -106,35 +110,36 @@ class live_previews_plugin : public wf::plugin_interface_t
         if (auto view = wf::ipc::find_view_by_id(id))
         {
             auto toplevel = wf::toplevel_cast(view);
-			if (!toplevel)
-			{
+            if (!toplevel)
+            {
                 return wf::ipc::json_error("view is not a toplevel");
             }
+
             auto vg = toplevel->get_geometry();
             if (vg.width < vg.height)
             {
-                vg.width = vg.width * (max_dimension / float(vg.height));
+                vg.width  = vg.width * (max_dimension / float(vg.height));
                 vg.height = max_dimension;
-            }
-            else
+            } else
             {
                 vg.height = vg.height * (max_dimension / float(vg.width));
-                vg.width = max_dimension;
+                vg.width  = max_dimension;
             }
+
             auto output_name = std::string("live-preview");
             drop_frame = int(frame_skip);
-            if (vg.width != current_size.width || vg.height != current_size.height)
+            if ((vg.width != current_size.width) || (vg.height != current_size.height))
             {
-                current_size.width = vg.width;
+                current_size.width  = vg.width;
                 current_size.height = vg.height;
                 if (wo)
                 {
                     wlr_output_state state;
                     wlr_output_mode mode
                     {
-                        .width = vg.width,
-                        .height = vg.height,
-                        .refresh = 0,
+                        .width     = vg.width,
+                        .height    = vg.height,
+                        .refresh   = 0,
                         .preferred = true,
                         .picture_aspect_ratio = WLR_OUTPUT_MODE_ASPECT_RATIO_NONE,
                     };
@@ -150,6 +155,7 @@ class live_previews_plugin : public wf::plugin_interface_t
                     }
                 }
             }
+
             if (wo)
             {
                 if (!hooks_set[wo])
@@ -158,6 +164,7 @@ class live_previews_plugin : public wf::plugin_interface_t
                     wo->render->add_effect(&damage_hook, wf::OUTPUT_EFFECT_PRE);
                     hooks_set[wo] = true;
                 }
+
                 view->connect(&view_unmapped);
                 destroy_render_instance_manager();
                 create_render_instance_manager(view);
@@ -165,12 +172,14 @@ class live_previews_plugin : public wf::plugin_interface_t
                 view->damage();
                 return wf::ipc::json_ok();
             }
+
             if (!headless_backend)
             {
                 headless_backend = wlr_headless_backend_create(wf::get_core().ev_loop);
                 wlr_multi_backend_add(wf::get_core().backend, headless_backend);
                 wlr_backend_start(headless_backend);
             }
+
             auto handle = wlr_headless_add_output(headless_backend, vg.width, vg.height);
             wlr_output_state state;
             wlr_output_state_init(&state);
@@ -179,6 +188,7 @@ class live_previews_plugin : public wf::plugin_interface_t
             {
                 wlr_output_commit_state(handle, &state);
             }
+
             wlr_output_state_finish(&state);
             auto global = handle->global;
             handle->global = NULL;
@@ -191,6 +201,7 @@ class live_previews_plugin : public wf::plugin_interface_t
                 wo->render->add_effect(&damage_hook, wf::OUTPUT_EFFECT_PRE);
                 hooks_set[wo] = true;
             }
+
             wo->connect(&on_output_pre_remove);
             view->connect(&view_unmapped);
             destroy_render_instance_manager();
@@ -248,25 +259,28 @@ class live_previews_plugin : public wf::plugin_interface_t
             auto view_output = current_preview->get_output();
             auto vg = wf::toplevel_cast(current_preview)->get_geometry();
             auto output_scale = view_output->handle->scale;
-            auto temp_scale = (max_dimension / float(vg.width)) * 2.0f;
+            auto temp_scale   = (max_dimension / float(vg.width)) * 2.0f;
             wf::auxilliary_buffer_t aux_buffer;
             view_output->handle->scale = temp_scale;
             current_preview->take_snapshot(aux_buffer);
             view_output->handle->scale = output_scale;
             auto src_size = aux_buffer.get_size();
             wf::gles::bind_render_buffer(dst);
-            dst.blit(aux_buffer, wlr_fbox{0, 0, float(src_size.width), float(src_size.height)}, wf::geometry_t{0, 0, current_size.width, current_size.height});
+            dst.blit(aux_buffer, wlr_fbox{0, 0, float(src_size.width), float(src_size.height)},
+                wf::geometry_t{0, 0, current_size.width, current_size.height});
             aux_buffer.free();
             current_preview->damage();
         });
     };
 
-    wf::signal::connection_t<wf::output_pre_remove_signal> on_output_pre_remove = [=] (wf::output_pre_remove_signal *ev)
+    wf::signal::connection_t<wf::output_pre_remove_signal> on_output_pre_remove =
+        [=] (wf::output_pre_remove_signal *ev)
     {
         if (!wo)
         {
             return;
         }
+
         destroy_render_instance_manager();
         current_preview = nullptr;
         if (hooks_set[wo])
@@ -313,6 +327,7 @@ class live_previews_plugin : public wf::plugin_interface_t
             output->render->rem_effect(&damage_hook);
             hooks_set[output] = false;
         }
+
         on_output_pre_remove.disconnect();
 
         if (wf::get_core().seat->get_active_output() == output)
