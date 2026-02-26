@@ -49,6 +49,7 @@ class live_previews_plugin : public wf::plugin_interface_t
     wayfire_view current_preview = nullptr;
     wf::output_t *wo = nullptr;
     wf::dimensions_t current_size;
+    std::map<wf::output_t *, bool> hooks_set;
     int drop_frame;
   private:
     wf::shared_data::ref_ptr_t<wf::ipc::method_repository_t> method_repository;
@@ -120,7 +121,6 @@ class live_previews_plugin : public wf::plugin_interface_t
                 vg.height = vg.height * (max_dimension / float(vg.width));
                 vg.width = max_dimension;
             }
-            LOGI(vg.width, "x", vg.height);
             auto output_name = std::string("live-preview");
             drop_frame = int(frame_skip);
             if (vg.width != current_size.width || vg.height != current_size.height)
@@ -152,8 +152,12 @@ class live_previews_plugin : public wf::plugin_interface_t
             }
             if (wo)
             {
-                wo->render->add_post(&post_hook);
-                wo->render->add_effect(&damage_hook, wf::OUTPUT_EFFECT_PRE);
+                if (!hooks_set[wo])
+                {
+                    wo->render->add_post(&post_hook);
+                    wo->render->add_effect(&damage_hook, wf::OUTPUT_EFFECT_PRE);
+                    hooks_set[wo] = true;
+                }
                 view->connect(&view_unmapped);
                 destroy_render_instance_manager();
                 create_render_instance_manager(view);
@@ -161,7 +165,6 @@ class live_previews_plugin : public wf::plugin_interface_t
                 view->damage();
                 return wf::ipc::json_ok();
             }
-
             if (!headless_backend)
             {
                 headless_backend = wlr_headless_backend_create(wf::get_core().ev_loop);
@@ -182,8 +185,12 @@ class live_previews_plugin : public wf::plugin_interface_t
             wlr_output_set_name(handle, output_name.c_str());
             handle->global = global;
             wo = wf::get_core().output_layout->find_output(handle);
-            wo->render->add_post(&post_hook);
-            wo->render->add_effect(&damage_hook, wf::OUTPUT_EFFECT_PRE);
+            if (!hooks_set[wo])
+            {
+                wo->render->add_post(&post_hook);
+                wo->render->add_effect(&damage_hook, wf::OUTPUT_EFFECT_PRE);
+                hooks_set[wo] = true;
+            }
             wo->connect(&on_output_pre_remove);
             view->connect(&view_unmapped);
             destroy_render_instance_manager();
@@ -202,10 +209,11 @@ class live_previews_plugin : public wf::plugin_interface_t
         destroy_render_instance_manager();
         view_unmapped.disconnect();
 
-        if (wo)
+        if (hooks_set[wo])
         {
             wo->render->rem_post(&post_hook);
             wo->render->rem_effect(&damage_hook);
+            hooks_set[wo] = false;
         }
 
         return wf::ipc::json_ok();
@@ -262,8 +270,12 @@ class live_previews_plugin : public wf::plugin_interface_t
         }
         destroy_render_instance_manager();
         current_preview = nullptr;
-        wo->render->rem_post(&post_hook);
-        wo->render->rem_effect(&damage_hook);
+        if (hooks_set[wo])
+        {
+            wo->render->rem_post(&post_hook);
+            wo->render->rem_effect(&damage_hook);
+            hooks_set[wo] = false;
+        }
     };
 
     wf::signal::connection_t<wf::view_unmapped_signal> view_unmapped = [=] (wf::view_unmapped_signal *ev)
@@ -277,36 +289,46 @@ class live_previews_plugin : public wf::plugin_interface_t
 
         destroy_render_instance_manager();
         current_preview = nullptr;
-        wo->render->rem_post(&post_hook);
-        wo->render->rem_effect(&damage_hook);
+        if (hooks_set[wo])
+        {
+            wo->render->rem_post(&post_hook);
+            wo->render->rem_effect(&damage_hook);
+            hooks_set[wo] = false;
+        }
     };
 
     void destroy_output()
     {
-        if (!wo)
+        auto output = wf::get_core().output_layout->find_output("live-preview");
+        if (!output)
         {
             return;
         }
 
-        LOGI("disabling output: ", wo->handle->name);
-
-        output_pre_remove_signal data;
-        data.output = wo;
-        wo->emit(&data);
-        get_core().output_layout->emit(&data);
-        wo->cancel_active_plugins();
-
-        if ((get_core().seat->get_active_output() == wo))
+        destroy_render_instance_manager();
+        current_preview = nullptr;
+        view_unmapped.disconnect();
+        if (hooks_set[output])
         {
-            get_core().seat->focus_output(
-                get_core().output_layout->get_next_output(wo));
+            output->render->rem_post(&post_hook);
+            output->render->rem_effect(&damage_hook);
+            hooks_set[output] = false;
+        }
+        on_output_pre_remove.disconnect();
+
+        if (wf::get_core().seat->get_active_output() == output)
+        {
+            wf::get_core().seat->focus_output(
+                wf::get_core().output_layout->get_next_output(output));
         }
 
-        wf::output_removed_signal data2;
-        data2.output = wo;
-        wo->emit(&data2);
-        get_core().output_layout->emit(&data2);
-        wo = nullptr;
+        wlr_output_layout_remove(wf::get_core().output_layout->get_handle(), output->handle);
+        wlr_output_destroy(output->handle);
+
+        if (output == wo)
+        {
+            wo = nullptr;
+        }
     }
 
     void fini() override
@@ -314,9 +336,6 @@ class live_previews_plugin : public wf::plugin_interface_t
         method_repository->unregister_method("live_previews/request_stream");
         method_repository->unregister_method("live_previews/release_output");
         destroy_output();
-        on_output_pre_remove.disconnect();
-        destroy_render_instance_manager();
-        view_unmapped.disconnect();
     }
 };
 }
