@@ -249,7 +249,7 @@ class live_previews_plugin : public wf::plugin_interface_t
             auto view_output = current_preview->get_output();
             auto vg = wf::toplevel_cast(current_preview)->get_geometry();
             auto output_scale = view_output->handle->scale;
-            auto temp_scale = max_dimension / float(vg.width);
+            auto temp_scale = (max_dimension / float(vg.width)) * 2.0f;
             wf::auxilliary_buffer_t aux_buffer;
             view_output->handle->scale = temp_scale;
             current_preview->take_snapshot(aux_buffer);
