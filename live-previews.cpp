@@ -168,6 +168,8 @@ class live_previews_plugin : public wf::plugin_interface_t
                 view->connect(&view_unmapped);
                 destroy_render_instance_manager();
                 create_render_instance_manager(view);
+                view->get_output()->render->damage_whole();
+                wo->render->damage_whole();
                 current_preview = view;
                 view->damage();
                 return wf::ipc::json_ok();
@@ -206,6 +208,8 @@ class live_previews_plugin : public wf::plugin_interface_t
             view->connect(&view_unmapped);
             destroy_render_instance_manager();
             create_render_instance_manager(view);
+            view->get_output()->render->damage_whole();
+            wo->render->damage_whole();
             current_preview = view;
             view->damage();
 
@@ -236,6 +240,11 @@ class live_previews_plugin : public wf::plugin_interface_t
         {
             wo->render->schedule_redraw();
         }
+
+        if (current_preview)
+        {
+            current_preview->damage();
+        }
     };
 
     wf::post_hook_t post_hook = [=] (wf::auxilliary_buffer_t& src, const wf::render_buffer_t& dst)
@@ -250,6 +259,7 @@ class live_previews_plugin : public wf::plugin_interface_t
             drop_frame = 0;
         } else
         {
+            current_preview->damage();
             return;
         }
 
