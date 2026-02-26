@@ -301,12 +301,13 @@ class live_previews_plugin : public wf::plugin_interface_t
     wf::signal::connection_t<wf::output_pre_remove_signal> on_output_pre_remove =
         [=] (wf::output_pre_remove_signal *ev)
     {
-        if (!wo)
+        if (!wo || (ev->output != wo))
         {
             return;
         }
 
         destroy_render_instance_manager();
+        view_unmapped.disconnect();
         current_preview = nullptr;
         if (hooks_set[wo])
         {
@@ -314,11 +315,13 @@ class live_previews_plugin : public wf::plugin_interface_t
             wo->render->rem_effect(&damage_hook);
             hooks_set[wo] = false;
         }
+
+        on_output_pre_remove.disconnect();
     };
 
     wf::signal::connection_t<wf::view_unmapped_signal> view_unmapped = [=] (wf::view_unmapped_signal *ev)
     {
-        if (ev->view != current_preview)
+        if (!current_preview || (ev->view != current_preview))
         {
             return;
         }
