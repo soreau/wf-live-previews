@@ -223,7 +223,6 @@ class live_previews_plugin : public wf::plugin_interface_t
     {
         if (wo)
         {
-            wo->render->damage_whole();
             wo->render->schedule_redraw();
         }
     };
