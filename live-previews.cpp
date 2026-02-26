@@ -266,14 +266,29 @@ class live_previews_plugin : public wf::plugin_interface_t
         wf::gles::run_in_context([&]
         {
             current_preview->damage();
-            auto view_output = current_preview->get_output();
             auto vg = wf::toplevel_cast(current_preview)->get_geometry();
+            auto view_output = current_preview->get_output();
+            auto vog = view_output->get_relative_geometry();
             auto output_scale = view_output->handle->scale;
-            auto temp_scale   = (max_dimension / float(vg.width)) * 2.0f;
+            auto temp_scale   = (max_dimension / float(vg.width));
             wf::auxilliary_buffer_t aux_buffer;
-            view_output->handle->scale = temp_scale;
+            bool scale_view = false;
+            if ((vg.width > vog.width) || (vg.height > vog.height))
+            {
+                scale_view = true;
+            }
+
+            if (scale_view)
+            {
+                view_output->handle->scale = temp_scale;
+            }
+
             current_preview->take_snapshot(aux_buffer);
-            view_output->handle->scale = output_scale;
+            if (scale_view)
+            {
+                view_output->handle->scale = output_scale;
+            }
+
             auto src_size = aux_buffer.get_size();
             wf::gles::bind_render_buffer(dst);
             dst.blit(aux_buffer, wlr_fbox{0, 0, float(src_size.width), float(src_size.height)},
