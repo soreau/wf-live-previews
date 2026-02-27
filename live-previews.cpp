@@ -106,11 +106,10 @@ class live_previews_plugin : public wf::plugin_interface_t
         method_repository->register_method("live_previews/release_output", release_output);
         on_session_active.set_callback([=] (void*)
         {
-            /* XXX: Bug in wlroots, both session destroy and session activate
-             * send active event. So we just destroy the output unconditionally
-             * because we set it to NULL and bail out on NULL when calling
-             * destroy_output() */
-            destroy_output();
+            if (!wf::get_core().session->active)
+            {
+                destroy_output();
+            }
         });
         if (wf::get_core().session)
         {
