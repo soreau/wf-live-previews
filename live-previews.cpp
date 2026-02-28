@@ -56,9 +56,25 @@ class simple_node_render_instance_t : public wf::scene::render_instance_t
         push_to_parent(ev->region);
     };
 
-    wf::scene::node_t *self;
+    wf::scene::damage_callback push_damage = [=] (wf::region_t region)
+    {
+        if (!output)
+        {
+            return;
+        }
+
+        region += -wf::origin(preview->view->get_bounding_box());
+        region  =
+            output->render->get_target_framebuffer().framebuffer_region_from_geometry_region(region);
+        output->render->damage(region, true);
+    };
+
+    std::unique_ptr<wf::scene::render_instance_manager_t> instance_manager = nullptr;
     wf::scene::damage_callback push_to_parent;
+    wf::scene::node_t *self;
     live_preview *preview;
+    wf::output_t *output;
+    double current_scale;
 
   public:
     simple_node_render_instance_t(wf::scene::node_t *self, wf::scene::damage_callback push_dmg,
@@ -68,52 +84,47 @@ class simple_node_render_instance_t : public wf::scene::render_instance_t
         this->preview = preview;
         this->push_to_parent = push_dmg;
         self->connect(&on_node_damaged);
+        LOGI("simple_node_render_instance_t");
+        this->output = preview->view->get_output();
+        this->current_scale = output->handle->scale;
+        auto vg = wf::toplevel_cast(preview->view)->get_geometry();
+        if (vg.width > vg.height)
+        {
+            output->handle->scale = std::min(1.0, preview->size.width / double(vg.width));
+        } else
+        {
+            output->handle->scale = std::min(1.0, preview->size.height / double(vg.height));
+        }
+        LOGI("current_scale: ", current_scale, " down scale: ", output->handle->scale);
+        std::vector<wf::scene::node_ptr> nodes;
+        nodes.push_back(preview->view->get_root_node());
+        instance_manager = std::make_unique<wf::scene::render_instance_manager_t>(nodes, push_damage, output);
+        instance_manager->set_visibility_region(output->get_layout_geometry());
+    }
+    ~simple_node_render_instance_t()
+    {
+        LOGI("~simple_node_render_instance_t");
+        instance_manager.reset();
+        instance_manager = nullptr;
+        this->output->handle->scale = this->current_scale;
     }
 
     void schedule_instructions(
         std::vector<wf::scene::render_instruction_t>& instructions,
         const wf::render_target_t& target, wf::region_t& damage) override
     {
+        auto vg = wf::toplevel_cast(preview->view)->get_geometry();
+        auto transformed_target = target.translated({vg.x, vg.y});
+        transformed_target.geometry = wf::geometry_t{0, 0, preview->size.width, preview->size.height};
         instructions.push_back(wf::scene::render_instruction_t{
                     .instance = this,
                     .target   = target,
                     .damage   = damage,
                 });
-    }
-
-    void render(const wf::scene::render_instruction_t& data) override
-    {
-        auto dst = data.target;
-
-        preview->output->render->damage_whole();
-
-        wf::gles::run_in_context([&]
+        for (auto &instance : instance_manager->get_instances())
         {
-            if (!preview->view || !wf::toplevel_cast(preview->view))
-            {
-                return;
-            }
-
-            wf::auxilliary_buffer_t aux_buffer;
-            auto vg = wf::toplevel_cast(preview->view)->get_geometry();
-            auto current_scale = preview->output->handle->scale;
-
-            if (vg.width > vg.height)
-            {
-                preview->output->handle->scale = std::min(1.0, preview->size.width / double(vg.width));
-            } else
-            {
-                preview->output->handle->scale = std::min(1.0, preview->size.height / double(vg.height));
-            }
-
-            preview->view->take_snapshot(aux_buffer);
-            preview->output->handle->scale = current_scale;
-            auto src_size = aux_buffer.get_size();
-            wf::gles::bind_render_buffer(dst);
-            dst.blit(aux_buffer, wlr_fbox{0, 0, float(src_size.width), float(src_size.height)},
-                wf::geometry_t{0, 0, preview->size.width, preview->size.height});
-            aux_buffer.free();
-        });
+            instance->schedule_instructions(instructions, transformed_target, damage);
+        }
     }
 };
 
@@ -124,7 +135,12 @@ class simple_node_t : public wf::scene::node_t
     live_preview *preview;
     simple_node_t(live_preview *preview) : wf::scene::node_t(false)
     {
+        LOGI("simple_node_t");
         this->preview = preview;
+    }
+    ~simple_node_t()
+    {
+        LOGI("~simple_node_t");
     }
 
     void gen_render_instances(std::vector<wf::scene::render_instance_uptr>& instances,
@@ -148,7 +164,7 @@ class simple_node_t : public wf::scene::node_t
 };
 
 std::shared_ptr<simple_node_t> add_simple_node(live_preview *preview)
-{
+{LOGI("add_simple_node");
     auto subnode = std::make_shared<simple_node_t>(preview);
     wf::scene::add_front(preview->output->node_for_layer(wf::scene::layer::LOCK), subnode);
     return subnode;
@@ -165,45 +181,14 @@ class live_previews_plugin : public wf::plugin_interface_t
 
   private:
     wf::shared_data::ref_ptr_t<wf::ipc::method_repository_t> method_repository;
-    std::unique_ptr<wf::scene::render_instance_manager_t> instance_manager = nullptr;
     wlr_backend *headless_backend = NULL;
-
-    wf::scene::damage_callback push_damage = [=] (wf::region_t region)
-    {
-        if (!preview.output)
-        {
-            return;
-        }
-
-        region += -wf::origin(preview.output->get_layout_geometry());
-        region  =
-            preview.output->render->get_target_framebuffer().framebuffer_region_from_geometry_region(region);
-        preview.output->render->damage(region, true);
-    };
 
     void destroy_render_instance_manager()
     {
-        if (!instance_manager)
-        {
-            return;
-        }
-
-        instance_manager.reset();
-        instance_manager = nullptr;
     }
 
     void create_render_instance_manager(wayfire_view view)
     {
-        if (instance_manager)
-        {
-            return;
-        }
-
-        std::vector<wf::scene::node_ptr> nodes;
-        nodes.push_back(view->get_root_node());
-        instance_manager = std::make_unique<wf::scene::render_instance_manager_t>(nodes, push_damage,
-            view->get_output());
-        instance_manager->set_visibility_region(view->get_output()->get_layout_geometry());
     }
 
   public:
@@ -253,7 +238,7 @@ class live_previews_plugin : public wf::plugin_interface_t
                 vg.height = vg.height * (max_dimension / float(vg.width));
                 vg.width  = max_dimension;
             }
-
+            LOGI("request_stream");
             if ((vg.width != preview.size.width) || (vg.height != preview.size.height))
             {
                 preview.size.width  = vg.width;
@@ -275,6 +260,8 @@ class live_previews_plugin : public wf::plugin_interface_t
 
             if (preview.output)
             {
+                preview.view = view;
+                live_preview_render_node = add_simple_node(&preview);
                 view->connect(&view_unmapped);
                 destroy_render_instance_manager();
                 create_render_instance_manager(view);
@@ -314,13 +301,13 @@ class live_previews_plugin : public wf::plugin_interface_t
             handle->global = global;
             preview.output = wf::get_core().output_layout->find_output(handle);
 
+            preview.view = view;
             live_preview_render_node = add_simple_node(&preview);
             view->connect(&view_unmapped);
             destroy_render_instance_manager();
             create_render_instance_manager(view);
             view->get_output()->render->damage_whole();
             preview.output->render->damage_whole();
-            preview.view = view;
             view->damage();
             idle_damage.run_once([=] ()
             {
@@ -336,7 +323,13 @@ class live_previews_plugin : public wf::plugin_interface_t
     };
 
     wf::ipc::method_callback release_output = [=] (wf::json_t data)
-    {
+    {LOGI("release_output");
+		if (live_preview_render_node)
+		{
+            wf::scene::remove_child(live_preview_render_node);
+        }
+        live_preview_render_node.reset();
+        live_preview_render_node = nullptr;
         destroy_render_instance_manager();
         view_unmapped.disconnect();
 
@@ -371,6 +364,10 @@ class live_previews_plugin : public wf::plugin_interface_t
                 wf::get_core().output_layout->get_next_output(output));
         }
 
+		if (live_preview_render_node)
+		{
+            wf::scene::remove_child(live_preview_render_node);
+        }
         live_preview_render_node.reset();
         live_preview_render_node = nullptr;
         wlr_output_layout_remove(wf::get_core().output_layout->get_handle(), output->handle);
