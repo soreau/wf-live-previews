@@ -139,7 +139,6 @@ class live_previews_plugin : public wf::plugin_interface_t
                 vg.width  = max_dimension;
             }
 
-            auto output_name = std::string("live-preview");
             drop_frame = int(frame_skip);
             if ((vg.width != current_size.width) || (vg.height != current_size.height))
             {
@@ -210,10 +209,10 @@ class live_previews_plugin : public wf::plugin_interface_t
                 wlr_output_commit_state(handle, &state);
             }
 
-            wlr_output_state_finish(&state);
             auto global = handle->global;
             handle->global = NULL;
-            wlr_output_set_name(handle, output_name.c_str());
+            wlr_output_set_name(handle, "live-preview");
+            wlr_output_set_description(handle, "Live Window Previews Virtual Output");
             handle->global = global;
             wo = wf::get_core().output_layout->find_output(handle);
             if (!hooks_set[wo])
