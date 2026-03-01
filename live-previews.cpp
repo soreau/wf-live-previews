@@ -85,7 +85,8 @@ class simple_node_render_instance_t : public wf::scene::render_instance_t
         std::vector<wf::scene::node_ptr> nodes;
         nodes.push_back(preview->view->get_root_node());
         instance_manager = std::make_unique<wf::scene::render_instance_manager_t>(nodes, push_damage, output);
-        instance_manager->set_visibility_region(preview->view->get_bounding_box());
+        instance_manager->set_visibility_region(wf::geometry_t{wf::toplevel_cast(
+            preview->view)->get_geometry()});
     }
 
     ~simple_node_render_instance_t()
