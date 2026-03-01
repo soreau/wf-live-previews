@@ -46,6 +46,7 @@ struct live_preview
     wf::dimensions_t size;
     wf::output_t *output;
     wayfire_view view;
+    double down_scale;
 };
 
 class simple_node_render_instance_t : public wf::scene::render_instance_t
@@ -74,7 +75,7 @@ class simple_node_render_instance_t : public wf::scene::render_instance_t
     wf::scene::node_t *self;
     live_preview *preview;
     wf::output_t *output;
-    double current_scale;
+    double original_scale;
 
   public:
     simple_node_render_instance_t(wf::scene::node_t *self, wf::scene::damage_callback push_dmg,
@@ -85,28 +86,20 @@ class simple_node_render_instance_t : public wf::scene::render_instance_t
         this->push_to_parent = push_dmg;
         self->connect(&on_node_damaged);
         LOGI("simple_node_render_instance_t");
-        this->output = preview->view->get_output();
-        this->current_scale = output->handle->scale;
-        auto vg = wf::toplevel_cast(preview->view)->get_geometry();
-        if (vg.width > vg.height)
-        {
-            output->handle->scale = std::min(1.0, preview->size.width / double(vg.width));
-        } else
-        {
-            output->handle->scale = std::min(1.0, preview->size.height / double(vg.height));
-        }
-        LOGI("current_scale: ", current_scale, " down scale: ", output->handle->scale);
+        this->output = preview->output;
+        original_scale = output->handle->scale;
+        output->handle->scale = preview->down_scale;
         std::vector<wf::scene::node_ptr> nodes;
         nodes.push_back(preview->view->get_root_node());
         instance_manager = std::make_unique<wf::scene::render_instance_manager_t>(nodes, push_damage, output);
-        instance_manager->set_visibility_region(output->get_layout_geometry());
+        instance_manager->set_visibility_region(preview->view->get_bounding_box());
     }
     ~simple_node_render_instance_t()
     {
         LOGI("~simple_node_render_instance_t");
+        output->handle->scale = original_scale;
         instance_manager.reset();
         instance_manager = nullptr;
-        this->output->handle->scale = this->current_scale;
     }
 
     void schedule_instructions(
@@ -114,11 +107,15 @@ class simple_node_render_instance_t : public wf::scene::render_instance_t
         const wf::render_target_t& target, wf::region_t& damage) override
     {
         auto vg = wf::toplevel_cast(preview->view)->get_geometry();
+        auto offset = wf::origin(vg);
+        damage *= 1.0 / preview->down_scale;
+        damage += offset;
         auto transformed_target = target.translated({vg.x, vg.y});
-        transformed_target.geometry = wf::geometry_t{0, 0, preview->size.width, preview->size.height};
+        transformed_target.geometry.width = preview->size.width;
+        transformed_target.geometry.height = preview->size.height;
         instructions.push_back(wf::scene::render_instruction_t{
                     .instance = this,
-                    .target   = target,
+                    .target   = transformed_target,
                     .damage   = damage,
                 });
         for (auto &instance : instance_manager->get_instances())
@@ -228,17 +225,21 @@ class live_previews_plugin : public wf::plugin_interface_t
                 return wf::ipc::json_error("view is not a toplevel");
             }
 
+            LOGI("request_stream");
             auto vg = toplevel->get_geometry();
-            if (vg.width < vg.height)
+            if (vg.width > vg.height)
             {
-                vg.width  = vg.width * (max_dimension / float(vg.height));
-                vg.height = max_dimension;
+                auto scale = vg.height / double(vg.width);
+                preview.down_scale = max_dimension / double(vg.width);
+                vg.width  = max_dimension;
+                vg.height = max_dimension * scale;
             } else
             {
-                vg.height = vg.height * (max_dimension / float(vg.width));
-                vg.width  = max_dimension;
+                auto scale = vg.width / double(vg.height);
+                preview.down_scale = max_dimension / double(vg.height);
+                vg.height  = max_dimension;
+                vg.width   = max_dimension * scale;
             }
-            LOGI("request_stream");
             if ((vg.width != preview.size.width) || (vg.height != preview.size.height))
             {
                 preview.size.width  = vg.width;
@@ -260,6 +261,12 @@ class live_previews_plugin : public wf::plugin_interface_t
 
             if (preview.output)
             {
+		        if (live_preview_render_node)
+		        {
+                    wf::scene::remove_child(live_preview_render_node);
+                    live_preview_render_node.reset();
+                    live_preview_render_node = nullptr;
+                }
                 preview.view = view;
                 live_preview_render_node = add_simple_node(&preview);
                 view->connect(&view_unmapped);
@@ -300,7 +307,14 @@ class live_previews_plugin : public wf::plugin_interface_t
             wlr_output_set_description(handle, "Live Window Previews Virtual Output");
             handle->global = global;
             preview.output = wf::get_core().output_layout->find_output(handle);
+            //preview.output->handle->scale = preview.down_scale;
 
+		    if (live_preview_render_node)
+		    {
+                wf::scene::remove_child(live_preview_render_node);
+                live_preview_render_node.reset();
+                live_preview_render_node = nullptr;
+            }
             preview.view = view;
             live_preview_render_node = add_simple_node(&preview);
             view->connect(&view_unmapped);
@@ -327,9 +341,9 @@ class live_previews_plugin : public wf::plugin_interface_t
 		if (live_preview_render_node)
 		{
             wf::scene::remove_child(live_preview_render_node);
+            live_preview_render_node.reset();
+            live_preview_render_node = nullptr;
         }
-        live_preview_render_node.reset();
-        live_preview_render_node = nullptr;
         destroy_render_instance_manager();
         view_unmapped.disconnect();
 
@@ -367,9 +381,9 @@ class live_previews_plugin : public wf::plugin_interface_t
 		if (live_preview_render_node)
 		{
             wf::scene::remove_child(live_preview_render_node);
+            live_preview_render_node.reset();
+            live_preview_render_node = nullptr;
         }
-        live_preview_render_node.reset();
-        live_preview_render_node = nullptr;
         wlr_output_layout_remove(wf::get_core().output_layout->get_handle(), output->handle);
         wlr_output_destroy(output->handle);
 
