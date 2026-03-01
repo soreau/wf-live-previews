@@ -64,9 +64,7 @@ class simple_node_render_instance_t : public wf::scene::render_instance_t
         }
 
         region += -wf::origin(preview->view->get_bounding_box());
-        region  =
-            output->render->get_target_framebuffer().framebuffer_region_from_geometry_region(region);
-        output->render->damage(region, true);
+        push_to_parent(region);
     };
 
     std::unique_ptr<wf::scene::render_instance_manager_t> instance_manager = nullptr;
@@ -100,17 +98,28 @@ class simple_node_render_instance_t : public wf::scene::render_instance_t
         const wf::render_target_t& target, wf::region_t& damage) override
     {
         auto offset = wf::origin(preview->view->get_bounding_box());
-        damage = wf::region_t{preview->view->get_bounding_box()};
+        damage += offset;
+        push_to_parent(damage);
+        //damage = wf::region_t{preview->view->get_bounding_box()};
         auto transformed_target = target.translated(offset);
+        for (auto & instance : instance_manager->get_instances())
+        {
+            instance->schedule_instructions(instructions, transformed_target, damage);
+        }
         instructions.push_back(wf::scene::render_instruction_t{
                     .instance = this,
                     .target   = transformed_target,
                     .damage   = damage,
                 });
-        for (auto & instance : instance_manager->get_instances())
+    }
+
+    void render(const wf::scene::render_instruction_t& data)
+    {
+        wf::gles::run_in_context([&]
         {
-            instance->schedule_instructions(instructions, transformed_target, damage);
-        }
+            wf::gles::bind_render_buffer(data.target);
+            OpenGL::clear(wf::color_t{0, 0, 0, 0}, GL_COLOR_BUFFER_BIT);
+        });
     }
 };
 
@@ -225,8 +234,6 @@ class live_previews_plugin : public wf::plugin_interface_t
                     {
                         destroy_output();
                     }
-
-                    preview.output->handle->scale = scale;
                 }
             }
 
@@ -239,6 +246,7 @@ class live_previews_plugin : public wf::plugin_interface_t
                     live_preview_render_node = nullptr;
                 }
 
+                preview.output->handle->scale = scale;
                 preview.view = view;
                 live_preview_render_node = add_simple_node(&preview);
                 view->connect(&view_unmapped);
@@ -277,7 +285,6 @@ class live_previews_plugin : public wf::plugin_interface_t
             wlr_output_set_description(handle, "Live Window Previews Virtual Output");
             handle->global = global;
             preview.output = wf::get_core().output_layout->find_output(handle);
-            preview.output->handle->scale = scale;
 
             if (live_preview_render_node)
             {
@@ -286,6 +293,7 @@ class live_previews_plugin : public wf::plugin_interface_t
                 live_preview_render_node = nullptr;
             }
 
+            preview.output->handle->scale = scale;
             preview.view = view;
             live_preview_render_node = add_simple_node(&preview);
             view->connect(&view_unmapped);
