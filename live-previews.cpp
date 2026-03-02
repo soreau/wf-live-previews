@@ -51,6 +51,7 @@ class live_previews_plugin : public wf::plugin_interface_t
     wf::dimensions_t current_size;
     std::map<wf::output_t*, bool> hooks_set;
     wf::wl_idle_call idle_damage;
+    wf::wl_timer<false> output_destroy_timer;
     int drop_frame;
 
   private:
@@ -140,6 +141,7 @@ class live_previews_plugin : public wf::plugin_interface_t
             }
 
             drop_frame = int(frame_skip);
+
             if ((vg.width != current_size.width) || (vg.height != current_size.height))
             {
                 current_size.width  = vg.width;
@@ -254,6 +256,12 @@ class live_previews_plugin : public wf::plugin_interface_t
             hooks_set[wo] = false;
         }
 
+        output_destroy_timer.disconnect();
+        output_destroy_timer.set_timeout(5000, [=] ()
+        {
+            destroy_output();
+        });
+
         return wf::ipc::json_ok();
     };
 
@@ -305,6 +313,12 @@ class live_previews_plugin : public wf::plugin_interface_t
             aux_buffer.free();
             current_preview->damage();
         });
+
+        output_destroy_timer.disconnect();
+        output_destroy_timer.set_timeout(5000, [=] ()
+        {
+            destroy_output();
+        });
     };
 
     wf::signal::connection_t<wf::view_unmapped_signal> view_unmapped = [=] (wf::view_unmapped_signal *ev)
@@ -329,6 +343,7 @@ class live_previews_plugin : public wf::plugin_interface_t
     void destroy_output()
     {
         auto output = wf::get_core().output_layout->find_output("live-preview");
+        output_destroy_timer.disconnect();
         if (!output)
         {
             return;
