@@ -271,11 +271,6 @@ class live_previews_plugin : public wf::plugin_interface_t
         {
             wo->render->schedule_redraw();
         }
-
-        if (current_preview)
-        {
-            current_preview->damage();
-        }
     };
 
     wf::post_hook_t post_hook = [=] (wf::auxilliary_buffer_t& src, const wf::render_buffer_t& dst)
@@ -286,7 +281,6 @@ class live_previews_plugin : public wf::plugin_interface_t
         } else
         {
             wo->render->damage_whole();
-            current_preview->damage();
             return;
         }
 
@@ -303,7 +297,6 @@ class live_previews_plugin : public wf::plugin_interface_t
 
         wf::gles::run_in_context([&]
         {
-            current_preview->damage();
             wf::auxilliary_buffer_t aux_buffer;
             current_preview->take_snapshot(aux_buffer);
             auto src_size = aux_buffer.get_size();
@@ -311,7 +304,6 @@ class live_previews_plugin : public wf::plugin_interface_t
             dst.blit(aux_buffer, wlr_fbox{0, 0, float(src_size.width), float(src_size.height)},
                 wf::geometry_t{0, 0, current_size.width, current_size.height});
             aux_buffer.free();
-            current_preview->damage();
         });
 
         output_destroy_timer.disconnect();
