@@ -14,5 +14,10 @@
 			<_long>Increase this value to skip frames, potentially improving performance at the expense of quality.</_long>
 			<default>0</default>
 		</option>
+		<option name="destroy_output" type="bool">
+			<_short>Destroy Output After Timeout</_short>
+			<_long>This option destroys the virtual output after 5 seconds. The downside is that on the first tooltip hover after the timeout, there is a slight lag spike. The benefit is that the virtual output is not shown in output management tools, and the mouse cannot be moved offscreen where it meets the rightmost output.</_long>
+			<default>true</default>
+		</option>
 	</plugin>
 </wayfire>

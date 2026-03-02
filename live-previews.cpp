@@ -43,6 +43,7 @@ namespace live_previews
 {
 class live_previews_plugin : public wf::plugin_interface_t
 {
+    wf::option_wrapper_t<bool> destroy_output_after_timeout{"live-previews/destroy_output"};
     wf::option_wrapper_t<int> max_dimension{"live-previews/max_dimension"};
     wf::option_wrapper_t<int> frame_skip{"live-previews/frame_skip"};
     wf::wl_listener_wrapper on_session_active;
@@ -52,6 +53,7 @@ class live_previews_plugin : public wf::plugin_interface_t
     std::map<wf::output_t*, bool> hooks_set;
     wf::wl_idle_call idle_damage;
     wf::wl_timer<false> output_destroy_timer;
+    int output_destroy_timeout_ms;
     int drop_frame;
 
   private:
@@ -116,6 +118,8 @@ class live_previews_plugin : public wf::plugin_interface_t
         {
             on_session_active.connect(&wf::get_core().session->events.active);
         }
+
+        output_destroy_timeout_ms = 5000;
     }
 
     wf::ipc::method_callback request_stream = [=] (wf::json_t data)
@@ -257,10 +261,13 @@ class live_previews_plugin : public wf::plugin_interface_t
         }
 
         output_destroy_timer.disconnect();
-        output_destroy_timer.set_timeout(5000, [=] ()
+        if (destroy_output_after_timeout)
         {
-            destroy_output();
-        });
+            output_destroy_timer.set_timeout(output_destroy_timeout_ms, [=] ()
+            {
+                destroy_output();
+            });
+        }
 
         return wf::ipc::json_ok();
     };
@@ -307,10 +314,13 @@ class live_previews_plugin : public wf::plugin_interface_t
         });
 
         output_destroy_timer.disconnect();
-        output_destroy_timer.set_timeout(5000, [=] ()
+        if (destroy_output_after_timeout)
         {
-            destroy_output();
-        });
+            output_destroy_timer.set_timeout(output_destroy_timeout_ms, [=] ()
+            {
+                destroy_output();
+            });
+        }
     };
 
     wf::signal::connection_t<wf::view_unmapped_signal> view_unmapped = [=] (wf::view_unmapped_signal *ev)
