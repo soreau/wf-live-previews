@@ -47,15 +47,14 @@ class live_previews_plugin : public wf::plugin_interface_t
     wf::option_wrapper_t<int> max_dimension{"live-previews/max_dimension"};
     wf::option_wrapper_t<int> frame_skip{"live-previews/frame_skip"};
     wf::wl_listener_wrapper on_session_active;
-    wayfire_view current_preview = nullptr;
-    wf::output_t *wo = nullptr;
-    wf::dimensions_t current_size;
-    std::map<wf::output_t*, bool> hooks_set;
-    wf::wl_idle_call idle_damage;
     wf::wl_timer<false> output_destroy_timer;
+    wayfire_view current_preview = nullptr;
+    wf::dimensions_t current_size;
     int output_destroy_timeout_ms;
-    double current_scale;
+    wf::output_t *wo = nullptr;
     bool render_flag = false;
+    bool hook_set    = false;
+    double current_scale;
     int drop_frame;
 
   private:
@@ -173,10 +172,10 @@ class live_previews_plugin : public wf::plugin_interface_t
 
             if (wo)
             {
-                if (!hooks_set[wo])
+                if (!hook_set)
                 {
                     wo->render->add_post(&post_hook);
-                    hooks_set[wo] = true;
+                    hook_set = true;
                 }
 
                 view->connect(&view_unmapped);
@@ -186,12 +185,6 @@ class live_previews_plugin : public wf::plugin_interface_t
                 wo->render->damage_whole();
                 current_preview = view;
                 view->damage();
-                idle_damage.run_once([=] ()
-                {
-                    view->get_output()->render->damage_whole();
-                    wo->render->damage_whole();
-                    view->damage();
-                });
                 return wf::ipc::json_ok();
             }
 
@@ -217,10 +210,10 @@ class live_previews_plugin : public wf::plugin_interface_t
             wlr_output_set_description(handle, "Live Window Previews Virtual Output");
             handle->global = global;
             wo = wf::get_core().output_layout->find_output(handle);
-            if (!hooks_set[wo])
+            if (!hook_set)
             {
                 wo->render->add_post(&post_hook);
-                hooks_set[wo] = true;
+                hook_set = true;
             }
 
             view->connect(&view_unmapped);
@@ -230,12 +223,6 @@ class live_previews_plugin : public wf::plugin_interface_t
             wo->render->damage_whole();
             current_preview = view;
             view->damage();
-            idle_damage.run_once([=] ()
-            {
-                view->get_output()->render->damage_whole();
-                wo->render->damage_whole();
-                view->damage();
-            });
 
             return wf::ipc::json_ok();
         }
@@ -248,10 +235,10 @@ class live_previews_plugin : public wf::plugin_interface_t
         destroy_render_instance_manager();
         view_unmapped.disconnect();
 
-        if (hooks_set[wo])
+        if (hook_set)
         {
             wo->render->rem_post(&post_hook);
-            hooks_set[wo] = false;
+            hook_set = false;
         }
 
         output_destroy_timer.disconnect();
@@ -345,10 +332,10 @@ class live_previews_plugin : public wf::plugin_interface_t
 
         destroy_render_instance_manager();
         current_preview = nullptr;
-        if (hooks_set[wo])
+        if (hook_set)
         {
             wo->render->rem_post(&post_hook);
-            hooks_set[wo] = false;
+            hook_set = false;
         }
     };
 
@@ -364,10 +351,10 @@ class live_previews_plugin : public wf::plugin_interface_t
         destroy_render_instance_manager();
         current_preview = nullptr;
         view_unmapped.disconnect();
-        if (hooks_set[output])
+        if (hook_set)
         {
             output->render->rem_post(&post_hook);
-            hooks_set[output] = false;
+            hook_set = false;
         }
 
         if (wf::get_core().seat->get_active_output() == output)
