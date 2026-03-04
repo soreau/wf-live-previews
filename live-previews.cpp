@@ -296,20 +296,17 @@ class live_previews_plugin : public wf::plugin_interface_t
 
         render_flag = false;
 
-        wf::gles::run_in_context([&]
+        auto output = current_preview->get_output();
+        if (!output)
         {
-            auto output = current_preview->get_output();
-            if (!output)
-            {
-                return;
-            }
+            return;
+        }
 
-            auto orig_scale = output->handle->scale;
-            output->handle->scale = current_scale;
-            wf::render_target_t target = wf::render_target_t(dst);
-            this->take_snapshot(&target);
-            output->handle->scale = orig_scale;
-        });
+        auto orig_scale = output->handle->scale;
+        output->handle->scale = current_scale;
+        wf::render_target_t target = wf::render_target_t(dst);
+        this->take_snapshot(&target);
+        output->handle->scale = orig_scale;
 
         output_destroy_timer.disconnect();
         if (destroy_output_after_timeout)
