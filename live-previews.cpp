@@ -54,6 +54,8 @@ class live_previews_plugin : public wf::plugin_interface_t
     wf::wl_idle_call idle_damage;
     wf::wl_timer<false> output_destroy_timer;
     int output_destroy_timeout_ms;
+    double current_scale;
+    bool render_flag = false;
     int drop_frame;
 
   private:
@@ -70,10 +72,9 @@ class live_previews_plugin : public wf::plugin_interface_t
 
         // Damage is pushed up to the root in root coordinate system,
         // we need it in output-buffer-local coordinate system.
-        region += -wf::origin(wo->get_layout_geometry());
-        region  =
-            wo->render->get_target_framebuffer().framebuffer_region_from_geometry_region(region);
+        region += -wf::origin(current_preview->get_surface_root_node()->get_bounding_box());
         wo->render->damage(region, true);
+        render_flag = true;
     };
 
     void destroy_render_instance_manager()
@@ -127,21 +128,17 @@ class live_previews_plugin : public wf::plugin_interface_t
         auto id = wf::ipc::json_get_uint64(data, "id");
         if (auto view = wf::ipc::find_view_by_id(id))
         {
-            auto toplevel = wf::toplevel_cast(view);
-            if (!toplevel)
-            {
-                return wf::ipc::json_error("view is not a toplevel");
-            }
-
-            auto vg = toplevel->get_geometry();
+            auto vg = view->get_surface_root_node()->get_bounding_box();
             if (vg.width < vg.height)
             {
-                vg.width  = vg.width * (max_dimension / float(vg.height));
+                current_scale = (max_dimension / float(vg.height));
+                vg.width  = vg.width * current_scale;
                 vg.height = max_dimension;
             } else
             {
-                vg.height = vg.height * (max_dimension / float(vg.width));
-                vg.width  = max_dimension;
+                current_scale = (max_dimension / float(vg.width));
+                vg.height     = vg.height * current_scale;
+                vg.width = max_dimension;
             }
 
             drop_frame = int(frame_skip);
@@ -179,7 +176,6 @@ class live_previews_plugin : public wf::plugin_interface_t
                 if (!hooks_set[wo])
                 {
                     wo->render->add_post(&post_hook);
-                    wo->render->add_effect(&damage_hook, wf::OUTPUT_EFFECT_DAMAGE);
                     hooks_set[wo] = true;
                 }
 
@@ -224,7 +220,6 @@ class live_previews_plugin : public wf::plugin_interface_t
             if (!hooks_set[wo])
             {
                 wo->render->add_post(&post_hook);
-                wo->render->add_effect(&damage_hook, wf::OUTPUT_EFFECT_DAMAGE);
                 hooks_set[wo] = true;
             }
 
@@ -256,7 +251,6 @@ class live_previews_plugin : public wf::plugin_interface_t
         if (hooks_set[wo])
         {
             wo->render->rem_post(&post_hook);
-            wo->render->rem_effect(&damage_hook);
             hooks_set[wo] = false;
         }
 
@@ -272,13 +266,26 @@ class live_previews_plugin : public wf::plugin_interface_t
         return wf::ipc::json_ok();
     };
 
-    wf::effect_hook_t damage_hook = [=] ()
+    void take_snapshot(wf::render_target_t *target)
     {
-        if (wo)
-        {
-            wo->render->schedule_redraw();
-        }
-    };
+        auto root_node = current_preview->get_surface_root_node();
+        const wf::geometry_t bbox = root_node->get_bounding_box();
+        float scale = current_preview->get_output()->handle->scale;
+
+        target->geometry = bbox;
+        target->scale    = scale;
+
+        std::vector<scene::render_instance_uptr> instances;
+        root_node->gen_render_instances(instances, [] (auto) {}, current_preview->get_output());
+
+        render_pass_params_t params;
+        params.background_color = {0, 0, 0, 0};
+        params.damage    = bbox;
+        params.target    = *target;
+        params.instances = &instances;
+        params.flags     = RPASS_CLEAR_BACKGROUND;
+        render_pass_t::run(params);
+    }
 
     wf::post_hook_t post_hook = [=] (wf::auxilliary_buffer_t& src, const wf::render_buffer_t& dst)
     {
@@ -287,30 +294,34 @@ class live_previews_plugin : public wf::plugin_interface_t
             drop_frame = 0;
         } else
         {
-            wo->render->damage_whole();
             return;
         }
-
-        wf::gles::run_in_context([&]
-        {
-            wf::gles::bind_render_buffer(dst);
-            OpenGL::clear(wf::color_t{0, 0, 0, 1}, GL_COLOR_BUFFER_BIT);
-        });
 
         if (!current_preview)
         {
             return;
         }
 
+        if (!render_flag)
+        {
+            return;
+        }
+
+        render_flag = false;
+
         wf::gles::run_in_context([&]
         {
-            wf::auxilliary_buffer_t aux_buffer;
-            current_preview->take_snapshot(aux_buffer);
-            auto src_size = aux_buffer.get_size();
-            wf::gles::bind_render_buffer(dst);
-            dst.blit(aux_buffer, wlr_fbox{0, 0, float(src_size.width), float(src_size.height)},
-                wf::geometry_t{0, 0, current_size.width, current_size.height});
-            aux_buffer.free();
+            auto output = current_preview->get_output();
+            if (!output)
+            {
+                return;
+            }
+
+            auto orig_scale = output->handle->scale;
+            output->handle->scale = current_scale;
+            wf::render_target_t target = wf::render_target_t(dst);
+            this->take_snapshot(&target);
+            output->handle->scale = orig_scale;
         });
 
         output_destroy_timer.disconnect();
@@ -337,7 +348,6 @@ class live_previews_plugin : public wf::plugin_interface_t
         if (hooks_set[wo])
         {
             wo->render->rem_post(&post_hook);
-            wo->render->rem_effect(&damage_hook);
             hooks_set[wo] = false;
         }
     };
@@ -357,7 +367,6 @@ class live_previews_plugin : public wf::plugin_interface_t
         if (hooks_set[output])
         {
             output->render->rem_post(&post_hook);
-            output->render->rem_effect(&damage_hook);
             hooks_set[output] = false;
         }
 
