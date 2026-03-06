@@ -52,7 +52,6 @@ class live_previews_plugin : public wf::plugin_interface_t
     wf::dimensions_t current_size;
     int output_destroy_timeout_ms;
     wf::output_t *wo = nullptr;
-    bool render_flag = false;
     bool hook_set    = false;
     double current_scale;
     int drop_frame;
@@ -71,9 +70,8 @@ class live_previews_plugin : public wf::plugin_interface_t
 
         // Damage is pushed up to the root in root coordinate system,
         // we need it in output-buffer-local coordinate system.
-        region += -wf::origin(current_preview->get_surface_root_node()->get_bounding_box());
+        region += -wf::origin(current_preview->get_bounding_box());
         wo->render->damage(region, true);
-        render_flag = true;
     };
 
     void destroy_render_instance_manager()
@@ -127,39 +125,32 @@ class live_previews_plugin : public wf::plugin_interface_t
         auto id = wf::ipc::json_get_uint64(data, "id");
         if (auto view = wf::ipc::find_view_by_id(id))
         {
-            auto vg = view->get_surface_root_node()->get_bounding_box();
+            auto vg = view->get_bounding_box();
             if (vg.width < vg.height)
             {
-                current_scale = (max_dimension / float(vg.height));
+                current_scale = max_dimension / double(vg.height);
                 vg.width  = vg.width * current_scale;
                 vg.height = max_dimension;
             } else
             {
-                current_scale = (max_dimension / float(vg.width));
+                current_scale = max_dimension / double(vg.width);
                 vg.height     = vg.height * current_scale;
                 vg.width = max_dimension;
             }
 
+            auto size = wf::dimensions_t{vg.width, vg.height};
+
             drop_frame = int(frame_skip);
 
-            if ((vg.width != current_size.width) || (vg.height != current_size.height))
+            if (size != current_size)
             {
-                current_size.width  = vg.width;
-                current_size.height = vg.height;
+                current_size.width  = size.width;
+                current_size.height = size.height;
                 if (wo)
                 {
                     wlr_output_state state;
-                    wlr_output_mode mode
-                    {
-                        .width     = vg.width,
-                        .height    = vg.height,
-                        .refresh   = 0,
-                        .preferred = true,
-                        .picture_aspect_ratio = WLR_OUTPUT_MODE_ASPECT_RATIO_NONE,
-                    };
                     wlr_output_state_init(&state);
-                    wlr_output_state_set_mode(&state, &mode);
-                    wlr_output_state_set_custom_mode(&state, vg.width, vg.height, 0);
+                    wlr_output_state_set_custom_mode(&state, size.width, size.height, 0);
                     if (wlr_output_test_state(wo->handle, &state))
                     {
                         wlr_output_commit_state(wo->handle, &state);
@@ -195,7 +186,7 @@ class live_previews_plugin : public wf::plugin_interface_t
                 wlr_backend_start(headless_backend);
             }
 
-            auto handle = wlr_headless_add_output(headless_backend, vg.width, vg.height);
+            auto handle = wlr_headless_add_output(headless_backend, size.width, size.height);
             wlr_output_state state;
             wlr_output_state_init(&state);
             wlr_output_state_set_render_format(&state, DRM_FORMAT_ABGR8888);
@@ -257,10 +248,13 @@ class live_previews_plugin : public wf::plugin_interface_t
     {
         auto root_node = current_preview->get_surface_root_node();
         const wf::geometry_t bbox = root_node->get_bounding_box();
-        float scale = current_preview->get_output()->handle->scale;
+
+        current_scale = (bbox.width < bbox.height) ?
+            (max_dimension / double(bbox.height)) :
+            (max_dimension / double(bbox.width));
 
         target->geometry = bbox;
-        target->scale    = scale;
+        target->scale    = current_scale;
 
         std::vector<scene::render_instance_uptr> instances;
         root_node->gen_render_instances(instances, [] (auto) {}, current_preview->get_output());
@@ -289,24 +283,8 @@ class live_previews_plugin : public wf::plugin_interface_t
             return;
         }
 
-        if (!render_flag)
-        {
-            return;
-        }
-
-        render_flag = false;
-
-        auto output = current_preview->get_output();
-        if (!output)
-        {
-            return;
-        }
-
-        auto orig_scale = output->handle->scale;
-        output->handle->scale = current_scale;
         wf::render_target_t target = wf::render_target_t(dst);
         this->take_snapshot(&target);
-        output->handle->scale = orig_scale;
 
         output_destroy_timer.disconnect();
         if (destroy_output_after_timeout)
