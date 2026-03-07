@@ -97,7 +97,7 @@ class live_previews_plugin : public wf::plugin_interface_t
         nodes.push_back(view->get_root_node());
         instance_manager = std::make_unique<wf::scene::render_instance_manager_t>(nodes, push_damage,
             view->get_output());
-        instance_manager->set_visibility_region(view->get_bounding_box());
+        instance_manager->set_visibility_region(view->get_surface_root_node()->get_bounding_box());
     }
 
   public:
@@ -126,7 +126,7 @@ class live_previews_plugin : public wf::plugin_interface_t
         auto id = wf::ipc::json_get_uint64(data, "id");
         if (auto view = wf::ipc::find_view_by_id(id))
         {
-            auto vg = view->get_bounding_box();
+            auto vg = view->get_surface_root_node()->get_bounding_box();
             if (vg.width < vg.height)
             {
                 current_scale = max_dimension / double(vg.height);
