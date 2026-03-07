@@ -96,7 +96,7 @@ class live_previews_plugin : public wf::plugin_interface_t
         nodes.push_back(view->get_root_node());
         instance_manager = std::make_unique<wf::scene::render_instance_manager_t>(nodes, push_damage,
             view->get_output());
-        instance_manager->set_visibility_region(view->get_output()->get_layout_geometry());
+        instance_manager->set_visibility_region(view->get_bounding_box());
     }
 
   public:
