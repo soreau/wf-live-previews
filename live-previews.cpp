@@ -68,10 +68,11 @@ class live_previews_plugin : public wf::plugin_interface_t
             return;
         }
 
-        // Damage is pushed up to the root in root coordinate system,
-        // we need it in output-buffer-local coordinate system.
-        region += -wf::origin(current_preview->get_bounding_box());
-        wo->render->damage(region, true);
+        /* XXX: Any damage on the preview output will schedule a repaint
+         * which calls our post_hook, so we ignore the damage region arg
+         * and damage as little as possible. */
+
+        wo->render->damage({0, 0, 1, 1}, true);
     };
 
     void destroy_render_instance_manager()
