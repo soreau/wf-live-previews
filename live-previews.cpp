@@ -52,6 +52,7 @@ class live_previews_plugin : public wf::plugin_interface_t
     wf::dimensions_t current_size;
     int output_destroy_timeout_ms;
     wf::output_t *wo = nullptr;
+    bool render_flag = false;
     bool hook_set    = false;
     double current_scale;
     int drop_frame;
@@ -73,6 +74,7 @@ class live_previews_plugin : public wf::plugin_interface_t
          * and damage as little as possible. */
 
         wo->render->damage({0, 0, 1, 1}, true);
+        render_flag = true;
     };
 
     void destroy_render_instance_manager()
@@ -283,6 +285,13 @@ class live_previews_plugin : public wf::plugin_interface_t
         {
             return;
         }
+
+        if (!render_flag)
+        {
+            return;
+        }
+
+        render_flag = false;
 
         wf::render_target_t target = wf::render_target_t(dst);
         this->take_snapshot(&target);
