@@ -128,6 +128,7 @@ class live_previews_plugin : public wf::plugin_interface_t
         auto id = wf::ipc::json_get_uint64(data, "id");
         if (auto view = wf::ipc::find_view_by_id(id))
         {
+            output_destroy_timer.disconnect();
             auto vg = view->get_surface_root_node()->get_bounding_box();
             if (vg.width < vg.height)
             {
@@ -295,15 +296,6 @@ class live_previews_plugin : public wf::plugin_interface_t
 
         wf::render_target_t target = wf::render_target_t(dst);
         this->take_snapshot(&target);
-
-        output_destroy_timer.disconnect();
-        if (destroy_output_after_timeout)
-        {
-            output_destroy_timer.set_timeout(output_destroy_timeout_ms, [=] ()
-            {
-                destroy_output();
-            });
-        }
     };
 
     wf::signal::connection_t<wf::view_unmapped_signal> view_unmapped = [=] (wf::view_unmapped_signal *ev)
