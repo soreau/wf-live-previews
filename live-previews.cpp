@@ -23,7 +23,6 @@
  */
 
 #include <wayfire/plugin.hpp>
-#include <wayfire/opengl.hpp>
 #include <wayfire/render-manager.hpp>
 #include <wayfire/view-transform.hpp>
 #include <wayfire/scene-operations.hpp>
@@ -332,12 +331,6 @@ class live_previews_plugin : public wf::plugin_interface_t
         {
             output->render->rem_post(&post_hook);
             hook_set = false;
-        }
-
-        if (wf::get_core().seat->get_active_output() == output)
-        {
-            wf::get_core().seat->focus_output(
-                wf::get_core().output_layout->get_next_output(output));
         }
 
         wlr_output_layout_remove(wf::get_core().output_layout->get_handle(), output->handle);
